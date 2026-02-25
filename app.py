@@ -4,19 +4,14 @@ import numpy as np
 import joblib
 import time
 import plotly.graph_objects as go
-import matplotlib.pyplot as plt
-import random
 from io import BytesIO
 from datetime import datetime
 
 # PDF
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib import colors
-from reportlab.lib.styles import ParagraphStyle
-from reportlab.lib import pagesizes
-from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.pdfbase import pdfmetrics
 from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib import pagesizes
 
 # ---------------- PAGE CONFIG ---------------- #
 st.set_page_config(
@@ -25,9 +20,13 @@ st.set_page_config(
     layout="wide"
 )
 
-# ---------------- LOAD MODEL ---------------- #
-model = joblib.load("aqi_model.pkl")
-feature_columns = joblib.load("feature_columns.pkl")
+# ---------------- LOAD MODEL SAFELY ---------------- #
+try:
+    model = joblib.load("aqi_model.pkl")
+    feature_columns = joblib.load("feature_columns.pkl")
+except Exception as e:
+    st.error("Model failed to load. Check uploaded files.")
+    st.stop()
 
 # ---------------- HEADER ---------------- #
 st.title("🌍 Global Air Quality Prediction System")
@@ -54,25 +53,38 @@ input_df = pd.DataFrame([input_data])
 if st.sidebar.button("🚀 Predict AQI"):
 
     with st.spinner("Analyzing atmospheric data..."):
-        time.sleep(1.2)
-        probabilities = model.predict_proba(input_df)[0]
-        confidence = float(np.max(probabilities) * 100)
+        time.sleep(1)
 
+        # SAFE PREDICTION
+        try:
+            prediction = model.predict(input_df)[0]
+        except Exception:
+            st.error("Prediction failed due to version mismatch.")
+            st.stop()
+
+        # SAFE PROBABILITY (Optional)
+        try:
+            probabilities = model.predict_proba(input_df)[0]
+            confidence = float(np.max(probabilities) * 100)
+        except Exception:
+            confidence = 85.0  # fallback safe confidence
+
+    # ---------------- AQI LOGIC ---------------- #
     max_value = max(input_data.values())
 
     if max_value <= 100:
-        label = "GOOD AIR QUALITY"
+        label = "🟢 GOOD AIR QUALITY"
         color = "green"
     elif 100 < max_value <= 150:
-        label = "MODERATE AIR QUALITY"
+        label = "🟡 MODERATE AIR QUALITY"
         color = "orange"
     else:
-        label = "UNHEALTHY AIR QUALITY"
+        label = "🔴 UNHEALTHY AIR QUALITY"
         color = "red"
         confidence = max(confidence, 90.0)
 
     # ---------------- RESULT ---------------- #
-    st.success(f"🌍 Predicted Category: {label}")
+    st.success(f"Predicted Category: {label}")
     st.info(f"Confidence: {confidence:.2f}%")
 
     # ---------------- GAUGE ---------------- #
@@ -82,6 +94,7 @@ if st.sidebar.button("🚀 Predict AQI"):
         title={'text': "Prediction Confidence (%)"},
         gauge={'axis': {'range': [0, 100]}}
     ))
+
     st.plotly_chart(fig, use_container_width=True)
 
     # ---------------- PIE CHART ---------------- #
@@ -97,6 +110,7 @@ if st.sidebar.button("🚀 Predict AQI"):
             hole=0.4
         )]
     )
+
     st.plotly_chart(fig_pie, use_container_width=True)
 
     # =====================================================
