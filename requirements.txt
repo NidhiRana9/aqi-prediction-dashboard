@@ -5,4 +5,5 @@ joblib
 plotly
 matplotlib
 scikit-learn
-xgboost
+xgboost==1.7.6
+reportlab
