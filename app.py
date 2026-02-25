@@ -6,6 +6,17 @@ import time
 import plotly.graph_objects as go
 import matplotlib.pyplot as plt
 import random
+from io import BytesIO
+from datetime import datetime
+
+# PDF
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib import colors
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib import pagesizes
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase import pdfmetrics
+from reportlab.lib.styles import getSampleStyleSheet
 
 # ---------------- PAGE CONFIG ---------------- #
 st.set_page_config(
@@ -13,70 +24,6 @@ st.set_page_config(
     page_icon="🌍",
     layout="wide"
 )
-
-# ---------------- BACKGROUND STYLE ---------------- #
-st.markdown("""
-<style>
-body {
-    background: linear-gradient(-45deg, #0f2027, #203a43, #2c5364, #000000);
-    background-size: 400% 400%;
-    animation: gradientMove 15s ease infinite;
-}
-@keyframes gradientMove {
-    0% {background-position: 0% 50%;}
-    50% {background-position: 100% 50%;}
-    100% {background-position: 0% 50%;}
-}
-
-.glass-card {
-    background: rgba(255,255,255,0.08);
-    backdrop-filter: blur(10px);
-    padding: 30px;
-    border-radius: 20px;
-    text-align: center;
-    font-size: 26px;
-    font-weight: bold;
-    color: white;
-    box-shadow: 0 0 25px rgba(0,0,0,0.6);
-}
-
-.quote-box {
-    background: rgba(255,255,255,0.06);
-    padding: 25px;
-    border-radius: 15px;
-    font-size: 20px;
-    color: white;
-    text-align: center;
-    margin-bottom: 20px;
-    transition: transform 0.3s ease;
-    cursor: pointer;
-}
-
-.quote-box:hover {
-    transform: scale(1.03);
-}
-
-.word {
-    display: inline-block;
-    transition: transform 0.2s ease, color 0.2s ease;
-}
-
-.word:active {
-    transform: translateY(-8px) rotate(-5deg);
-    color: #00ffff;
-}
-
-.stButton>button {
-    background: linear-gradient(to right, #00c6ff, #0072ff);
-    color: white;
-    border-radius: 12px;
-    height: 3em;
-    width: 100%;
-    font-size: 18px;
-    font-weight: bold;
-}
-</style>
-""", unsafe_allow_html=True)
 
 # ---------------- LOAD MODEL ---------------- #
 model = joblib.load("aqi_model.pkl")
@@ -103,15 +50,6 @@ for feature in feature_columns:
 
 input_df = pd.DataFrame([input_data])
 
-# ---------------- QUOTES ---------------- #
-quotes = [
-    "🌫 The Earth is what we all have in common Protect it",
-    "🌍 Clean air is a human right not a privilege",
-    "🏭 Every breath matters reduce pollution today",
-    "🌱 The future depends on what we do today",
-    "🚫 Stop pollution start solution"
-]
-
 # ---------------- PREDICTION ---------------- #
 if st.sidebar.button("🚀 Predict AQI"):
 
@@ -123,24 +61,19 @@ if st.sidebar.button("🚀 Predict AQI"):
     max_value = max(input_data.values())
 
     if max_value <= 100:
-        label = "🟢 GOOD AIR QUALITY"
-        color = "#00FF7F"
+        label = "GOOD AIR QUALITY"
+        color = "green"
     elif 100 < max_value <= 150:
-        label = "🟡 MODERATE AIR QUALITY"
-        color = "#FFD700"
+        label = "MODERATE AIR QUALITY"
+        color = "orange"
     else:
-        label = "🔴 UNHEALTHY AIR QUALITY"
-        color = "#FF0000"
+        label = "UNHEALTHY AIR QUALITY"
+        color = "red"
         confidence = max(confidence, 90.0)
 
-    # ---------------- RESULT CARD ---------------- #
-    st.markdown(f"""
-    <div class="glass-card" style="border: 2px solid {color};">
-        🌍 Predicted AQI Category: {label}
-        <br><br>
-        Confidence: {confidence:.2f}%
-    </div>
-    """, unsafe_allow_html=True)
+    # ---------------- RESULT ---------------- #
+    st.success(f"🌍 Predicted Category: {label}")
+    st.info(f"Confidence: {confidence:.2f}%")
 
     # ---------------- GAUGE ---------------- #
     fig = go.Figure(go.Indicator(
@@ -151,61 +84,77 @@ if st.sidebar.button("🚀 Predict AQI"):
     ))
     st.plotly_chart(fig, use_container_width=True)
 
-    # ---------------- LOWER SECTION ---------------- #
-    st.markdown("### 🔍 Detailed Analysis")
-    col1, col2 = st.columns([1, 1])
+    # ---------------- PIE CHART ---------------- #
+    st.markdown("### 🧪 Gas Composition")
 
-    # LEFT SMALL BAR GRAPH
-    with col1:
-        st.markdown("#### Probability Distribution")
+    gas_names = list(input_data.keys())
+    gas_values = list(input_data.values())
 
-        prob_df = pd.DataFrame({
-            "Category": ["Good", "Moderate", "Unhealthy"],
-            "Probability (%)": probabilities * 100
-        })
+    fig_pie = go.Figure(
+        data=[go.Pie(
+            labels=gas_names,
+            values=gas_values,
+            hole=0.4
+        )]
+    )
+    st.plotly_chart(fig_pie, use_container_width=True)
 
-        fig_small, ax = plt.subplots(figsize=(4,3))
-        ax.bar(prob_df["Category"], prob_df["Probability (%)"])
-        ax.set_ylim(0, 100)
-        st.pyplot(fig_small)
+    # =====================================================
+    # 📄 PDF GENERATION
+    # =====================================================
 
-    # RIGHT SIDE QUOTE + PIE CHART
-    with col2:
-        st.markdown("#### 🌿 Environmental Awareness")
+    def generate_pdf():
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=pagesizes.A4)
+        elements = []
 
-        random_quote = random.choice(quotes)
+        styles = getSampleStyleSheet()
 
-        st.markdown(f"""
-        <div class="quote-box">
-            {" ".join([f'<span class="word">{w}</span>' for w in random_quote.split()])}
-        </div>
-        """, unsafe_allow_html=True)
+        elements.append(Paragraph("<b>Global Air Quality Report</b>", styles['Title']))
+        elements.append(Spacer(1, 20))
 
-        # ---------------- PIE CHART ---------------- #
-        st.markdown("#### 🧪 Gas Composition")
+        elements.append(Paragraph(f"<b>Predicted Category:</b> {label}", styles['Normal']))
+        elements.append(Spacer(1, 10))
 
-        gas_names = list(input_data.keys())
-        gas_values = list(input_data.values())
+        elements.append(Paragraph(f"<b>Confidence:</b> {confidence:.2f}%", styles['Normal']))
+        elements.append(Spacer(1, 10))
 
-        fig_pie = go.Figure(
-            data=[go.Pie(
-                labels=gas_names,
-                values=gas_values,
-                hole=0.4
-            )]
-        )
+        elements.append(Paragraph(
+            f"<b>Generated On:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            styles['Normal']
+        ))
+        elements.append(Spacer(1, 20))
 
-        fig_pie.update_layout(height=350)
+        elements.append(Paragraph("<b>Gas Values:</b>", styles['Heading2']))
+        elements.append(Spacer(1, 10))
 
-        st.plotly_chart(fig_pie, use_container_width=True)
+        table_data = [["Gas", "Value"]]
 
-    # METRICS
-    col3, col4, col5 = st.columns(3)
-    col3.metric("Model Accuracy", "89%")
-    col4.metric("Algorithm", "XGBoost")
-    col5.metric("Classes", "3 Levels")
+        for gas, value in input_data.items():
+            table_data.append([gas, str(value)])
 
-    st.info("Category based on pollution thresholds. Confidence shows model certainty.")
+        table = Table(table_data)
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.grey),
+            ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
+            ('GRID', (0,0), (-1,-1), 1, colors.black),
+            ('BACKGROUND',(0,1),(-1,-1),colors.beige),
+        ]))
+
+        elements.append(table)
+
+        doc.build(elements)
+        buffer.seek(0)
+        return buffer
+
+    pdf_file = generate_pdf()
+
+    st.download_button(
+        label="📄 Download AQI Report (PDF)",
+        data=pdf_file,
+        file_name="AQI_Report.pdf",
+        mime="application/pdf"
+    )
 
 st.markdown("---")
-st.markdown("© 2026 Global Air Quality Prediction System | Environmental AI Platform 🌫️")
+st.markdown("© 2026 Global Air Quality Prediction System 🌍")
