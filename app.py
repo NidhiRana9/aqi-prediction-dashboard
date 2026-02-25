@@ -7,7 +7,6 @@ import plotly.graph_objects as go
 from io import BytesIO
 from datetime import datetime
 
-# PDF
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
@@ -20,12 +19,12 @@ st.set_page_config(
     layout="wide"
 )
 
-# ---------------- LOAD MODEL SAFELY ---------------- #
+# ---------------- LOAD MODEL ---------------- #
 try:
     model = joblib.load("aqi_model.pkl")
     feature_columns = joblib.load("feature_columns.pkl")
 except Exception as e:
-    st.error("Model failed to load. Check uploaded files.")
+    st.error(f"Model loading failed: {e}")
     st.stop()
 
 # ---------------- HEADER ---------------- #
@@ -33,7 +32,7 @@ st.title("🌍 Global Air Quality Prediction System")
 st.subheader("AI-Powered Atmospheric Intelligence Platform")
 st.markdown("---")
 
-# ---------------- SIDEBAR INPUT ---------------- #
+# ---------------- SIDEBAR ---------------- #
 st.sidebar.header("🌫 Atmospheric Parameters")
 
 input_data = {}
@@ -49,41 +48,37 @@ for feature in feature_columns:
 
 input_df = pd.DataFrame([input_data])
 
+# 🔥 VERY IMPORTANT (column order safety)
+input_df = input_df[feature_columns]
+
 # ---------------- PREDICTION ---------------- #
 if st.sidebar.button("🚀 Predict AQI"):
 
     with st.spinner("Analyzing atmospheric data..."):
         time.sleep(1)
 
-        # SAFE PREDICTION
         try:
             prediction = model.predict(input_df)[0]
-        except Exception:
-            st.error("Prediction failed due to version mismatch.")
+        except Exception as e:
+            st.error(f"Prediction Error: {e}")
             st.stop()
 
-        # SAFE PROBABILITY (Optional)
         try:
             probabilities = model.predict_proba(input_df)[0]
             confidence = float(np.max(probabilities) * 100)
         except Exception:
-            confidence = 85.0  # fallback safe confidence
+            confidence = 85.0
 
-    # ---------------- AQI LOGIC ---------------- #
     max_value = max(input_data.values())
 
     if max_value <= 100:
         label = "🟢 GOOD AIR QUALITY"
-        color = "green"
     elif 100 < max_value <= 150:
         label = "🟡 MODERATE AIR QUALITY"
-        color = "orange"
     else:
         label = "🔴 UNHEALTHY AIR QUALITY"
-        color = "red"
         confidence = max(confidence, 90.0)
 
-    # ---------------- RESULT ---------------- #
     st.success(f"Predicted Category: {label}")
     st.info(f"Confidence: {confidence:.2f}%")
 
@@ -97,31 +92,24 @@ if st.sidebar.button("🚀 Predict AQI"):
 
     st.plotly_chart(fig, use_container_width=True)
 
-    # ---------------- PIE CHART ---------------- #
+    # ---------------- PIE ---------------- #
     st.markdown("### 🧪 Gas Composition")
-
-    gas_names = list(input_data.keys())
-    gas_values = list(input_data.values())
 
     fig_pie = go.Figure(
         data=[go.Pie(
-            labels=gas_names,
-            values=gas_values,
+            labels=list(input_data.keys()),
+            values=list(input_data.values()),
             hole=0.4
         )]
     )
 
     st.plotly_chart(fig_pie, use_container_width=True)
 
-    # =====================================================
-    # 📄 PDF GENERATION
-    # =====================================================
-
+    # ---------------- PDF ---------------- #
     def generate_pdf():
         buffer = BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=pagesizes.A4)
         elements = []
-
         styles = getSampleStyleSheet()
 
         elements.append(Paragraph("<b>Global Air Quality Report</b>", styles['Title']))
@@ -137,13 +125,12 @@ if st.sidebar.button("🚀 Predict AQI"):
             f"<b>Generated On:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             styles['Normal']
         ))
-        elements.append(Spacer(1, 20))
 
+        elements.append(Spacer(1, 20))
         elements.append(Paragraph("<b>Gas Values:</b>", styles['Heading2']))
         elements.append(Spacer(1, 10))
 
         table_data = [["Gas", "Value"]]
-
         for gas, value in input_data.items():
             table_data.append([gas, str(value)])
 
@@ -156,8 +143,8 @@ if st.sidebar.button("🚀 Predict AQI"):
         ]))
 
         elements.append(table)
-
         doc.build(elements)
+
         buffer.seek(0)
         return buffer
 
